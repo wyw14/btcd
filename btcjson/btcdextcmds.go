@@ -128,6 +128,23 @@ func NewGetHeadersCmd(blockLocators []string, hashStop string) *GetHeadersCmd {
 	}
 }
 
+// GetPingRTTDistributionCmd defines the getpingrttdistribution JSON-RPC
+// command.  This command is not a standard Bitcoin command.  It is an
+// extension for btcd.
+type GetPingRTTDistributionCmd struct {
+	Bounds []uint64
+}
+
+// NewGetPingRTTDistributionCmd returns a new instance which can be used to
+// issue a getpingrttdistribution JSON-RPC command.  The bounds must be
+// non-negative microsecond values in strictly increasing order and may be
+// empty.
+func NewGetPingRTTDistributionCmd(bounds []uint64) *GetPingRTTDistributionCmd {
+	return &GetPingRTTDistributionCmd{
+		Bounds: bounds,
+	}
+}
+
 // VersionCmd defines the version JSON-RPC command.
 //
 // NOTE: This is a btcsuite extension ported from
@@ -152,5 +169,6 @@ func init() {
 	MustRegisterCmd("getbestblock", (*GetBestBlockCmd)(nil), flags)
 	MustRegisterCmd("getcurrentnet", (*GetCurrentNetCmd)(nil), flags)
 	MustRegisterCmd("getheaders", (*GetHeadersCmd)(nil), flags)
+	MustRegisterCmd("getpingrttdistribution", (*GetPingRTTDistributionCmd)(nil), flags)
 	MustRegisterCmd("version", (*VersionCmd)(nil), flags)
 }

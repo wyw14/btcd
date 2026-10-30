@@ -20,6 +20,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -166,6 +167,7 @@ var rpcHandlersBeforeInit = map[string]commandHandler{
 	"getnetworkhashps":       handleGetNetworkHashPS,
 	"getnodeaddresses":       handleGetNodeAddresses,
 	"getpeerinfo":            handleGetPeerInfo,
+	"getpingrttdistribution": handleGetPingRTTDistribution,
 	"getrawmempool":          handleGetRawMempool,
 	"getrawtransaction":      handleGetRawTransaction,
 	"gettxout":               handleGetTxOut,
@@ -2618,6 +2620,141 @@ func handleGetPeerInfo(s *rpcServer, cmd interface{}, closeChan <-chan struct{})
 		infos = append(infos, info)
 	}
 	return infos, nil
+}
+
+// validatePingRTTBounds ensures the passed histogram boundaries are strictly
+// increasing.  The boundaries are already guaranteed to be non-negative by
+// the []uint64 command parameter type.
+func validatePingRTTBounds(bounds []uint64) error {
+	for i := 1; i < len(bounds); i++ {
+		if bounds[i] <= bounds[i-1] {
+			return &btcjson.RPCError{
+				Code: btcjson.ErrRPCInvalidParams.Code,
+				Message: fmt.Sprintf("boundaries must be "+
+					"strictly increasing, but boundary "+
+					"#%d (%d) is not greater than "+
+					"boundary #%d (%d)", i, bounds[i],
+					i-1, bounds[i-1]),
+			}
+		}
+	}
+	return nil
+}
+
+// newPingRTTBuckets builds the result buckets for the passed strictly
+// increasing boundaries.  With n boundaries there are n+1 half-open buckets:
+// an underflow bucket for values below the first boundary, n-1 interior
+// buckets, and an overflow bucket for values greater than or equal to the last
+// boundary.  With no boundaries, an empty (but non-nil) slice is returned.
+func newPingRTTBuckets(bounds []uint64) []btcjson.PingRTTDistributionBucketResult {
+	if len(bounds) == 0 {
+		return []btcjson.PingRTTDistributionBucketResult{}
+	}
+
+	buckets := make([]btcjson.PingRTTDistributionBucketResult, len(bounds)+1)
+	for i := range buckets {
+		if i > 0 {
+			lower := bounds[i-1]
+			buckets[i].LowerInclusive = &lower
+		}
+		if i < len(bounds) {
+			upper := bounds[i]
+			buckets[i].UpperExclusive = &upper
+		}
+	}
+	return buckets
+}
+
+// pingRTTDistribution classifies the passed per-peer ping snapshots into the
+// histogram described by the passed boundaries and reports how many peers
+// have never completed a valid ping or currently have a ping awaiting a
+// matching pong.
+//
+// Peers that previously completed a ping are bucketed by the most recent
+// completed value even when a newer ping is pending.  Peers that have never
+// completed a valid ping are never placed in a bucket, even when the measured
+// value happens to be zero.
+func pingRTTDistribution(bounds []uint64, sampleTime time.Time, peers []peer.PingRTTSnapshot) *btcjson.GetPingRTTDistributionResult {
+	result := &btcjson.GetPingRTTDistributionResult{
+		SampleTime: sampleTime.Unix(),
+		TotalPeers: uint32(len(peers)),
+		Buckets:    newPingRTTBuckets(bounds),
+	}
+
+	for _, peerSnap := range peers {
+		if peerSnap.PingPending {
+			result.PingPending++
+		}
+
+		// Explicitly skip peers without a completed matching pong so
+		// a missing measurement is never confused with a zero
+		// microsecond round trip.
+		if !peerSnap.PingCompleted {
+			result.NeverCompletedPing++
+			continue
+		}
+
+		if len(bounds) == 0 {
+			// No intervals were requested, so there is nowhere to
+			// place completed peers; they remain accounted for in
+			// the total peer count.
+			continue
+		}
+
+		// A completed round trip is measured in microseconds and can
+		// not be negative, but guard the conversion so a pathological
+		// value lands in the underflow bucket rather than overflowing.
+		rtt := uint64(0)
+		if peerSnap.LastRTTMicros > 0 {
+			rtt = uint64(peerSnap.LastRTTMicros)
+		}
+
+		// Search returns the smallest index with rtt < bounds[i],
+		// which is exactly the half-open bucket the value belongs to:
+		// index 0 is the underflow bucket and len(bounds) is the
+		// overflow bucket.
+		idx := sort.Search(len(bounds), func(i int) bool {
+			return rtt < bounds[i]
+		})
+		if peerSnap.Inbound {
+			result.Buckets[idx].Inbound++
+		} else {
+			result.Buckets[idx].Outbound++
+		}
+	}
+
+	return result
+}
+
+// handleGetPingRTTDistribution implements the getpingrttdistribution command.
+//
+// The connected peer set is obtained once and each peer contributes exactly
+// one statistics snapshot.  Snapshots are taken one peer at a time and the
+// network state is not frozen between them, so peers connecting or
+// disconnecting during the query may or may not be represented and individual
+// snapshots may differ slightly in age.  This handler never sends pings,
+// disconnects peers, or modifies peer selection.
+func handleGetPingRTTDistribution(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
+	c := cmd.(*btcjson.GetPingRTTDistributionCmd)
+
+	if err := validatePingRTTBounds(c.Bounds); err != nil {
+		return nil, err
+	}
+
+	// Snapshot the current connection list through the connection
+	// manager.  Peers removed after this point remain in the local slice
+	// and still yield a valid, read-only statistics snapshot.
+	connectedPeers := s.cfg.ConnMgr.ConnectedPeers()
+
+	// Record the sampling time and take one independent statistics
+	// snapshot per listed peer.
+	sampleTime := time.Now()
+	peerSnaps := make([]peer.PingRTTSnapshot, len(connectedPeers))
+	for i, p := range connectedPeers {
+		peerSnaps[i] = p.ToPeer().PingRTTStats()
+	}
+
+	return pingRTTDistribution(c.Bounds, sampleTime, peerSnaps), nil
 }
 
 // handleGetRawMempool implements the getrawmempool command.

@@ -195,6 +195,36 @@ func TestBtcdExtCmds(t *testing.T) {
 			},
 		},
 		{
+			name: "getpingrttdistribution with boundaries",
+			newCmd: func() (interface{}, error) {
+				return btcjson.NewCmd("getpingrttdistribution",
+					[]uint64{100, 1000, 10000})
+			},
+			staticCmd: func() interface{} {
+				return btcjson.NewGetPingRTTDistributionCmd(
+					[]uint64{100, 1000, 10000})
+			},
+			marshalled: `{"jsonrpc":"1.0","method":"getpingrttdistribution","params":[[100,1000,10000]],"id":1}`,
+			unmarshalled: &btcjson.GetPingRTTDistributionCmd{
+				Bounds: []uint64{100, 1000, 10000},
+			},
+		},
+		{
+			name: "getpingrttdistribution with empty boundaries",
+			newCmd: func() (interface{}, error) {
+				return btcjson.NewCmd("getpingrttdistribution",
+					[]uint64{})
+			},
+			staticCmd: func() interface{} {
+				return btcjson.NewGetPingRTTDistributionCmd(
+					[]uint64{})
+			},
+			marshalled: `{"jsonrpc":"1.0","method":"getpingrttdistribution","params":[[]],"id":1}`,
+			unmarshalled: &btcjson.GetPingRTTDistributionCmd{
+				Bounds: []uint64{},
+			},
+		},
+		{
 			name: "version",
 			newCmd: func() (interface{}, error) {
 				return btcjson.NewCmd("version")
@@ -270,6 +300,54 @@ func TestBtcdExtCmds(t *testing.T) {
 				fmt.Sprintf("(%T) %+[1]v", cmd),
 				fmt.Sprintf("(%T) %+[1]v\n", test.unmarshalled))
 			continue
+		}
+	}
+}
+
+// TestGetPingRTTDistributionCmdRejectsInvalidParams ensures the
+// getpingrttdistribution command rejects boundaries that are not unsigned
+// integers and requests that omit the required parameter.
+func TestGetPingRTTDistributionCmdRejectsInvalidParams(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		params string
+	}{
+		{
+			name:   "negative boundary",
+			params: `[[-1, 10]]`,
+		},
+		{
+			name:   "float boundary",
+			params: `[[1.5, 10]]`,
+		},
+		{
+			name:   "string boundary",
+			params: `[["10", "100"]]`,
+		},
+		{
+			name:   "missing boundaries parameter",
+			params: `[]`,
+		},
+	}
+
+	for _, test := range tests {
+		var params []json.RawMessage
+		if err := json.Unmarshal([]byte(test.params), &params); err != nil {
+			t.Fatalf("invalid test params %s: %v", test.params, err)
+		}
+
+		request := &btcjson.Request{
+			Jsonrpc: "1.0",
+			ID:      1,
+			Method:  "getpingrttdistribution",
+			Params:  params,
+		}
+
+		if _, err := btcjson.UnmarshalCmd(request); err == nil {
+			t.Errorf("UnmarshalCmd (%s): expected an error for "+
+				"params %s", test.name, test.params)
 		}
 	}
 }

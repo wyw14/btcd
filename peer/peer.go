@@ -384,24 +384,50 @@ type stallControlMsg struct {
 
 // StatsSnap is a snapshot of peer stats at a point in time.
 type StatsSnap struct {
-	ID             int32
-	Addr           string
-	Services       wire.ServiceFlag
-	LastSend       time.Time
-	LastRecv       time.Time
-	BytesSent      uint64
-	BytesRecv      uint64
-	ConnTime       time.Time
-	TimeOffset     int64
-	Version        uint32
-	UserAgent      string
-	Inbound        bool
-	StartingHeight int32
-	LastBlock      int32
-	LastPingNonce  uint64
-	LastPingTime   time.Time
-	LastPingMicros int64
-	V2Connection   bool
+	ID                int32
+	Addr              string
+	Services          wire.ServiceFlag
+	LastSend          time.Time
+	LastRecv          time.Time
+	BytesSent         uint64
+	BytesRecv         uint64
+	ConnTime          time.Time
+	TimeOffset        int64
+	Version           uint32
+	UserAgent         string
+	Inbound           bool
+	StartingHeight    int32
+	LastBlock         int32
+	LastPingNonce     uint64
+	LastPingTime      time.Time
+	LastPingMicros    int64
+	LastPingCompleted bool
+	V2Connection      bool
+}
+
+// PingRTTSnapshot is a point-in-time snapshot of the ping round-trip-time
+// statistics for a single peer.  It is captured under the peer's statistics
+// mutex, so all fields are mutually consistent for the peer they describe,
+// although snapshots of different peers are not taken at the same instant.
+type PingRTTSnapshot struct {
+	// Inbound specifies whether or not the peer is an inbound connection.
+	Inbound bool
+
+	// PingPending specifies whether or not a ping is currently waiting on
+	// a matching pong at the time of the snapshot.
+	PingPending bool
+
+	// PingCompleted specifies whether or not a pong matching a previously
+	// sent ping nonce has ever been recorded for the peer.  It is used to
+	// distinguish a peer that has never completed a valid ping from one
+	// whose last completed round trip measured zero microseconds.
+	PingCompleted bool
+
+	// LastRTTMicros is the round-trip time, in microseconds, of the most
+	// recently completed valid ping.  It is only meaningful when
+	// PingCompleted is true and is retained even when a newer ping is
+	// already pending.
+	LastRTTMicros int64
 }
 
 // HashFunc is a function which returns a block hash, height and error
@@ -497,6 +523,7 @@ type Peer struct {
 	lastPingNonce      uint64    // Set to nonce if we have a pending ping.
 	lastPingTime       time.Time // Time we sent last ping.
 	lastPingMicros     int64     // Time for last ping to return.
+	lastPingCompleted  bool      // A matching pong has been recorded.
 
 	stallControl  chan stallControlMsg
 	outputQueue   chan outMsg
@@ -577,28 +604,49 @@ func (p *Peer) StatsSnapshot() *StatsSnap {
 
 	// Get a copy of all relevant flags and stats.
 	statsSnap := &StatsSnap{
-		ID:             id,
-		Addr:           addr,
-		UserAgent:      userAgent,
-		Services:       services,
-		LastSend:       p.LastSend(),
-		LastRecv:       p.LastRecv(),
-		BytesSent:      p.BytesSent(),
-		BytesRecv:      p.BytesReceived(),
-		ConnTime:       p.timeConnected,
-		TimeOffset:     p.timeOffset,
-		Version:        protocolVersion,
-		Inbound:        p.inbound,
-		StartingHeight: p.startingHeight,
-		LastBlock:      p.lastBlock,
-		LastPingNonce:  p.lastPingNonce,
-		LastPingMicros: p.lastPingMicros,
-		LastPingTime:   p.lastPingTime,
-		V2Connection:   p.cfg.UsingV2Conn,
+		ID:                id,
+		Addr:              addr,
+		UserAgent:         userAgent,
+		Services:          services,
+		LastSend:          p.LastSend(),
+		LastRecv:          p.LastRecv(),
+		BytesSent:         p.BytesSent(),
+		BytesRecv:         p.BytesReceived(),
+		ConnTime:          p.timeConnected,
+		TimeOffset:        p.timeOffset,
+		Version:           protocolVersion,
+		Inbound:           p.inbound,
+		StartingHeight:    p.startingHeight,
+		LastBlock:         p.lastBlock,
+		LastPingNonce:     p.lastPingNonce,
+		LastPingMicros:    p.lastPingMicros,
+		LastPingCompleted: p.lastPingCompleted,
+		LastPingTime:      p.lastPingTime,
+		V2Connection:      p.cfg.UsingV2Conn,
 	}
 
 	p.statsMtx.RUnlock()
 	return statsSnap
+}
+
+// PingRTTStats returns a point-in-time snapshot of the peer's ping
+// round-trip-time statistics.  The fields are read together under the peer's
+// statistics mutex so they are mutually consistent for this peer, however
+// callers must not assume snapshots taken across multiple peers were frozen at
+// the same instant.
+//
+// This function is safe for concurrent access.
+func (p *Peer) PingRTTStats() PingRTTSnapshot {
+	p.statsMtx.RLock()
+	snap := PingRTTSnapshot{
+		Inbound:       p.inbound,
+		PingPending:   p.lastPingNonce != 0,
+		PingCompleted: p.lastPingCompleted,
+		LastRTTMicros: p.lastPingMicros,
+	}
+	p.statsMtx.RUnlock()
+
+	return snap
 }
 
 // ID returns the peer id.
@@ -703,6 +751,20 @@ func (p *Peer) LastPingMicros() int64 {
 	p.statsMtx.RUnlock()
 
 	return lastPingMicros
+}
+
+// LastPingCompleted returns whether or not the remote peer has ever completed
+// a valid ping, meaning a pong whose nonce matched a ping sent by the local
+// peer.  It is distinct from LastPingMicros returning zero, which can happen
+// when a valid round trip measures zero microseconds.
+//
+// This function is safe for concurrent access.
+func (p *Peer) LastPingCompleted() bool {
+	p.statsMtx.RLock()
+	lastPingCompleted := p.lastPingCompleted
+	p.statsMtx.RUnlock()
+
+	return lastPingCompleted
 }
 
 // VersionKnown returns the whether or not the version of a peer is known
@@ -1083,6 +1145,12 @@ func (p *Peer) handlePongMsg(msg *wire.MsgPong) {
 			p.lastPingMicros = time.Since(p.lastPingTime).Nanoseconds()
 			p.lastPingMicros /= 1000 // convert to usec.
 			p.lastPingNonce = 0
+
+			// Record that a valid ping has completed.  This
+			// explicitly distinguishes a measured zero microsecond
+			// round trip from a peer for which no matching pong
+			// has ever been received.
+			p.lastPingCompleted = true
 		}
 		p.statsMtx.Unlock()
 	}

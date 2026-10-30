@@ -506,6 +506,28 @@ var helpDescsEnUS = map[string]string{
 	// GetPeerInfoCmd help.
 	"getpeerinfo--synopsis": "Returns data about each connected network peer as an array of json objects.",
 
+	// GetPingRTTDistributionCmd help.
+	"getpingrttdistribution--synopsis": "Returns the distribution of the most recent completed ping round-trip times for all connected peers.\n" +
+		"The caller supplies strictly increasing non-negative microsecond boundaries; peers are counted per direction in half-open intervals [lower, upper),\n" +
+		"plus an underflow bucket below the first boundary and an overflow bucket at or above the last boundary.\n" +
+		"Only pongs matching a sent ping nonce count, so peers that never completed a valid ping are reported separately and are never placed in a bucket,\n" +
+		"even when a round trip measures zero microseconds. Peers with a newer ping still in flight use their most recent completed value.\n" +
+		"Each peer is read via an independent statistics snapshot; network state is not frozen across peers and this RPC sends no pings and disconnects no peers.",
+	"getpingrttdistribution-bounds": "JSON array of strictly increasing non-negative microsecond boundaries; an empty array produces no buckets",
+
+	// PingRTTDistributionBucketResult help.
+	"pingrttdistributionbucketresult-lower_inclusive": "Inclusive lower edge of the bucket in microseconds; null means negative infinity",
+	"pingrttdistributionbucketresult-upper_exclusive": "Exclusive upper edge of the bucket in microseconds; null means positive infinity",
+	"pingrttdistributionbucketresult-inbound":         "Number of inbound peers whose last ping round-trip time falls in the bucket",
+	"pingrttdistributionbucketresult-outbound":        "Number of outbound peers whose last ping round-trip time falls in the bucket",
+
+	// GetPingRTTDistributionResult help.
+	"getpingrttdistributionresult-sample_time":          "The local sampling time in seconds since 1 Jan 1970 GMT",
+	"getpingrttdistributionresult-total_peers":          "The number of connected peers that were sampled",
+	"getpingrttdistributionresult-never_completed_ping": "The number of peers that never completed a valid ping",
+	"getpingrttdistributionresult-ping_pending":         "The number of peers currently waiting for a ping response",
+	"getpingrttdistributionresult-buckets":              "The per-direction round-trip-time histogram buckets",
+
 	// GetRawMempoolVerboseResult help.
 	"getrawmempoolverboseresult-size":             "Transaction size in bytes",
 	"getrawmempoolverboseresult-fee":              "Transaction fee in bitcoins",
@@ -793,6 +815,7 @@ var rpcResultTypes = map[string][]interface{}{
 	"getnetworkhashps":       {(*float64)(nil)},
 	"getnodeaddresses":       {(*[]btcjson.GetNodeAddressesResult)(nil)},
 	"getpeerinfo":            {(*[]btcjson.GetPeerInfoResult)(nil)},
+	"getpingrttdistribution": {(*btcjson.GetPingRTTDistributionResult)(nil)},
 	"getrawmempool":          {(*[]string)(nil), (*btcjson.GetRawMempoolVerboseResult)(nil)},
 	"getrawtransaction":      {(*string)(nil), (*btcjson.TxRawResult)(nil)},
 	"gettxout":               {(*btcjson.GetTxOutResult)(nil)},
