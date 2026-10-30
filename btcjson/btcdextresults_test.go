@@ -35,6 +35,68 @@ func TestBtcdExtCustomResults(t *testing.T) {
 			},
 			expected: `{"versionstring":"1.0.0","major":1,"minor":0,"patch":0,"prerelease":"pr","buildmetadata":"bm"}`,
 		},
+		{
+			name: "getrpccommandsresult",
+			result: &btcjson.GetRPCCommandsResult{
+				RPCVersion:    "1.3.0",
+				Transport:     btcjson.RPCTransportHTTP,
+				Authenticated: true,
+				Admin:         false,
+				Indexes: btcjson.RPCIndexesStatus{
+					TxIndex: btcjson.RPCIndexStatus{
+						Enabled: false,
+						Detail:  "tx index detail",
+					},
+					AddrIndex: btcjson.RPCIndexStatus{
+						Enabled: true,
+						Detail:  "addr index detail",
+					},
+					CfIndex: btcjson.RPCIndexStatus{
+						Enabled: false,
+						Detail:  "cf index detail",
+					},
+				},
+				Commands: []btcjson.RPCCommandInfo{
+					{
+						Name:       "getrawtransaction",
+						Status:     btcjson.RPCCommandStatusImplemented,
+						HTTP:       true,
+						Websocket:  true,
+						Authorized: true,
+						Requirements: []btcjson.RPCIndexRequirement{
+							{
+								Index:       btcjson.RPCIndexTx,
+								Enabled:     false,
+								Conditional: true,
+								Detail:      "mempool transactions work without it",
+							},
+						},
+					},
+					{
+						Name:       "getblock",
+						Status:     btcjson.RPCCommandStatusImplemented,
+						HTTP:       true,
+						Websocket:  true,
+						Authorized: true,
+					},
+				},
+				Notifications: []btcjson.RPCNotificationInfo{
+					{
+						Name:      "blockconnected",
+						HTTP:      false,
+						Websocket: true,
+					},
+				},
+			},
+			expected: `{"rpcversion":"1.3.0","transport":"http","authenticated":true,"admin":false,` +
+				`"indexes":{"txindex":{"enabled":false,"detail":"tx index detail"},` +
+				`"addrindex":{"enabled":true,"detail":"addr index detail"},` +
+				`"cfindex":{"enabled":false,"detail":"cf index detail"}},` +
+				`"commands":[{"name":"getrawtransaction","status":"implemented","http":true,"websocket":true,"authorized":true,` +
+				`"requirements":[{"index":"txindex","enabled":false,"conditional":true,"detail":"mempool transactions work without it"}]},` +
+				`{"name":"getblock","status":"implemented","http":true,"websocket":true,"authorized":true}],` +
+				`"notifications":[{"name":"blockconnected","http":false,"websocket":true}]}`,
+		},
 	}
 
 	t.Logf("Running %d tests", len(tests))

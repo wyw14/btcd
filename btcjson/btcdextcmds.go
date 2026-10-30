@@ -141,6 +141,21 @@ type VersionCmd struct{}
 // github.com/decred/dcrd/dcrjson.
 func NewVersionCmd() *VersionCmd { return new(VersionCmd) }
 
+// GetRPCCommandsCmd defines the getrpccommands JSON-RPC command.
+//
+// This command allows clients to discover which RPC commands the node
+// currently recognizes, how they are reached (HTTP or websockets), whether
+// the authenticated identity is allowed to invoke them, and which optional
+// indexes they depend on, without having to trial invoke them.  It takes no
+// parameters and never executes or modifies anything.
+type GetRPCCommandsCmd struct{}
+
+// NewGetRPCCommandsCmd returns a new instance which can be used to issue a
+// getrpccommands JSON-RPC command.
+func NewGetRPCCommandsCmd() *GetRPCCommandsCmd {
+	return &GetRPCCommandsCmd{}
+}
+
 func init() {
 	// No special flags for commands in this file.
 	flags := UsageFlag(0)
@@ -153,4 +168,5 @@ func init() {
 	MustRegisterCmd("getcurrentnet", (*GetCurrentNetCmd)(nil), flags)
 	MustRegisterCmd("getheaders", (*GetHeadersCmd)(nil), flags)
 	MustRegisterCmd("version", (*VersionCmd)(nil), flags)
+	MustRegisterCmd("getrpccommands", (*GetRPCCommandsCmd)(nil), flags)
 }

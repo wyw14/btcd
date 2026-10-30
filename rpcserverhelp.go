@@ -755,6 +755,51 @@ var helpDescsEnUS = map[string]string{
 	"gettxspendingprevoutresult-txid":         "The transaction hash in hex.",
 	"gettxspendingprevoutresult-vout":         "The output index.",
 	"gettxspendingprevoutresult-spendingtxid": "The hash of the transaction that spends the output.",
+
+	// GetRPCCommandsCmd help.
+	"getrpccommands--synopsis": "Returns the RPC commands the node recognizes, sorted by name, along with " +
+		"their implementation status, whether they can be used over HTTP and/or " +
+		"websockets, whether the authenticated identity is allowed to invoke them, and " +
+		"the state and scope of any optional index they require.  The query does not " +
+		"execute any command or modify node state.",
+
+	// GetRPCCommandsResult help.
+	"getrpccommandsresult-rpcversion":    "The JSON-RPC API semantic version supported by the node.",
+	"getrpccommandsresult-transport":     "The transport used for the request (\"http\" or \"websocket\").",
+	"getrpccommandsresult-authenticated": "Whether or not the request was authenticated.",
+	"getrpccommandsresult-admin":         "Whether or not the authenticated identity has admin permissions.",
+	"getrpccommandsresult-indexes":       "The state of the optional indexes.",
+	"getrpccommandsresult-commands":      "The recognized commands, stably sorted by name.",
+	"getrpccommandsresult-notifications": "The server-to-client websocket notifications, stably sorted by name.",
+
+	// RPCIndexesStatus help.
+	"rpcindexesstatus-txindex":   "The state of the full transaction index (--txindex).",
+	"rpcindexesstatus-addrindex": "The state of the address index (--addrindex).",
+	"rpcindexesstatus-cfindex":   "The state of the compact filter index (--cfindex).",
+
+	// RPCIndexStatus help.
+	"rpcindexstatus-enabled": "Whether or not the index is enabled.",
+	"rpcindexstatus-detail":  "What the index provides and the limitations that apply to it.",
+
+	// RPCCommandInfo help.
+	"rpccommandinfo-name":         "The JSON-RPC method name.",
+	"rpccommandinfo-status":       "The implementation status: \"implemented\", \"wallet_required\", or \"unimplemented\".",
+	"rpccommandinfo-http":         "Whether or not the command can be invoked over an HTTP POST JSON-RPC connection.",
+	"rpccommandinfo-websocket":    "Whether or not the command can be invoked over a websocket JSON-RPC connection.",
+	"rpccommandinfo-authorized":   "Whether or not the authenticated identity is allowed to invoke the command.",
+	"rpccommandinfo-requirements": "The optional index requirements of the command, if any.",
+
+	// RPCIndexRequirement help.
+	"rpcindexrequirement-index":       "The name of the required index (\"txindex\", \"addrindex\", or \"cfindex\").",
+	"rpcindexrequirement-enabled":     "Whether or not the required index is enabled.",
+	"rpcindexrequirement-conditional": "Whether or not the index is only required for specific usages of the command rather than the command as a whole.",
+	"rpcindexrequirement-parameter":   "The command parameter the conditional requirement applies to, when applicable.",
+	"rpcindexrequirement-detail":      "The exact scope and limitation of the requirement.",
+
+	// RPCNotificationInfo help.
+	"rpcnotificationinfo-name":      "The JSON-RPC notification method name.",
+	"rpcnotificationinfo-http":      "Whether or not the notification is delivered over an HTTP POST connection (always false).",
+	"rpcnotificationinfo-websocket": "Whether or not the notification is delivered over a websocket connection (always true).",
 }
 
 // rpcResultTypes specifies the result types that each RPC command can return.
@@ -814,6 +859,7 @@ var rpcResultTypes = map[string][]interface{}{
 	"version":                {(*map[string]btcjson.VersionResult)(nil)},
 	"testmempoolaccept":      {(*[]btcjson.TestMempoolAcceptResult)(nil)},
 	"gettxspendingprevout":   {(*[]btcjson.GetTxSpendingPrevOutResult)(nil)},
+	"getrpccommands":         {(*btcjson.GetRPCCommandsResult)(nil)},
 
 	// Websocket commands.
 	"loadtxfilter":              nil,
@@ -879,8 +925,18 @@ func (c *helpCacher) rpcUsage(includeWebsockets bool) (string, error) {
 	}
 
 	// Generate a list of one-line usage for every command.
-	usageTexts := make([]string, 0, len(rpcHandlers))
+	usageTexts := make([]string, 0, len(rpcHandlers)+len(rpcSpecialDispatch))
 	for k := range rpcHandlers {
+		usage, err := btcjson.MethodUsageText(k)
+		if err != nil {
+			return "", err
+		}
+		usageTexts = append(usageTexts, usage)
+	}
+
+	// Include commands serviced directly by standardCmdResult so they show
+	// up in the usage overview as well.
+	for k := range rpcSpecialDispatch {
 		usage, err := btcjson.MethodUsageText(k)
 		if err != nil {
 			return "", err

@@ -20,6 +20,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -259,7 +260,8 @@ var rpcLimited = map[string]struct{}{
 	"session":               {},
 
 	// Websockets AND HTTP/S commands
-	"help": {},
+	"help":           {},
+	"getrpccommands": {},
 
 	// HTTP/S-only commands
 	"createrawtransaction":  {},
@@ -293,6 +295,136 @@ var rpcLimited = map[string]struct{}{
 	"validateaddress":       {},
 	"verifymessage":         {},
 	"version":               {},
+}
+
+// getRPCCommandsMethod is the method name of the RPC capability discovery
+// command.
+const getRPCCommandsMethod = "getrpccommands"
+
+// rpcSpecialDispatch contains commands that are recognized by the node and are
+// serviced directly by standardCmdResult rather than through an entry in
+// rpcHandlers, because they need access to the authenticated identity of the
+// caller or other per-request context that ordinary handlers do not receive.
+// The commands are still implemented, available over both transports, and are
+// included in help and capability listings.
+var rpcSpecialDispatch = map[string]struct{}{
+	getRPCCommandsMethod: {},
+}
+
+// wsSpecialDispatch contains websocket commands that are serviced by the
+// websocket layer outside of the wsHandlers map.  The authenticate command is
+// the handshake which must be available before a client has authenticated and
+// is therefore handled specially.
+var wsSpecialDispatch = map[string]struct{}{
+	"authenticate": {},
+}
+
+// rpcIndexKind identifies one of the optional indexes the RPC server can make
+// use of.
+type rpcIndexKind string
+
+const (
+	rpcIndexTx   rpcIndexKind = btcjson.RPCIndexTx
+	rpcIndexAddr rpcIndexKind = btcjson.RPCIndexAddr
+	rpcIndexCF   rpcIndexKind = btcjson.RPCIndexCF
+)
+
+// rpcIndexRequirement describes a static dependency a command has on one of
+// the optional indexes.  When conditional is true, the index is only required
+// for the specific usage described (for example, an optional parameter) and
+// the command itself must not be reported as completely unavailable when the
+// index is disabled.
+type rpcIndexRequirement struct {
+	index       rpcIndexKind
+	conditional bool
+	parameter   string
+	detail      string
+}
+
+// rpcIndexRequirements defines the optional index requirements of individual
+// commands.  Only commands which make use of an optional index have entries.
+// Requirements that only apply to a subset of a command's usages are marked
+// conditional and describe the exact scope instead of blanket disabling the
+// command.
+var rpcIndexRequirements = map[string][]rpcIndexRequirement{
+	"getcfilter": {
+		{
+			index: rpcIndexCF,
+			detail: "the compact filter index must be enabled " +
+				"(--cfindex); only basic filters (filtertype " +
+				"0) are indexed, any other filter type is " +
+				"unsupported",
+		},
+	},
+	"getcfilterheader": {
+		{
+			index: rpcIndexCF,
+			detail: "the compact filter index must be enabled " +
+				"(--cfindex); only basic filter headers " +
+				"(filtertype 0) are indexed, any other " +
+				"filter type is unsupported",
+		},
+	},
+	"getrawtransaction": {
+		{
+			index:       rpcIndexTx,
+			conditional: true,
+			detail: "the transaction index is only required to " +
+				"look up confirmed transactions that are " +
+				"not in the memory pool (--txindex); " +
+				"transactions that are in the memory pool " +
+				"can be queried without it",
+		},
+	},
+	"searchrawtransactions": {
+		{
+			index: rpcIndexAddr,
+			detail: "the address index is required for all " +
+				"address-based transaction lookups, " +
+				"including unconfirmed transactions " +
+				"(--addrindex)",
+		},
+		{
+			index:       rpcIndexTx,
+			conditional: true,
+			parameter:   "vinextra",
+			detail: "the transaction index is only required " +
+				"when the vinextra parameter is true, in " +
+				"order to populate the previous output " +
+				"information of the inputs (--txindex)",
+		},
+	},
+}
+
+// indexStatus returns whether the optional index identified by kind is
+// enabled along with a human readable description of the index and its
+// limitations.
+func (s *rpcServer) indexStatus(kind rpcIndexKind) btcjson.RPCIndexStatus {
+	switch kind {
+	case rpcIndexTx:
+		return btcjson.RPCIndexStatus{
+			Enabled: s.cfg.TxIndex != nil,
+			Detail: "indexes every transaction so arbitrary " +
+				"transactions can be looked up by hash " +
+				"(--txindex)",
+		}
+	case rpcIndexAddr:
+		return btcjson.RPCIndexStatus{
+			Enabled: s.cfg.AddrIndex != nil,
+			Detail: "indexes transactions by address so " +
+				"transactions involving an address can be " +
+				"looked up (--addrindex)",
+		}
+	case rpcIndexCF:
+		return btcjson.RPCIndexStatus{
+			Enabled: s.cfg.CfIndex != nil,
+			Detail: "indexes BIP158 basic compact filters and " +
+				"filter headers (--cfindex); only basic " +
+				"filters (filtertype 0) are supported",
+		}
+	default:
+		return btcjson.RPCIndexStatus{}
+	}
 }
 
 // builderScript is a convenience function which is used for hard-coded scripts
@@ -2911,14 +3043,17 @@ func handleHelp(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (inter
 		return usage, nil
 	}
 
-	// Check that the command asked for is supported and implemented.  Only
-	// search the main list of handlers since help should not be provided
-	// for commands that are unimplemented or related to wallet
+	// Check that the command asked for is supported and implemented.
+	// Only search the main list of handlers and the set of commands which
+	// are serviced directly by standardCmdResult since help should not be
+	// provided for commands that are unimplemented or related to wallet
 	// functionality.
 	if _, ok := rpcHandlers[command]; !ok {
-		return nil, &btcjson.RPCError{
-			Code:    btcjson.ErrRPCInvalidParameter,
-			Message: "Unknown command: " + command,
+		if _, specialOK := rpcSpecialDispatch[command]; !specialOK {
+			return nil, &btcjson.RPCError{
+				Code:    btcjson.ErrRPCInvalidParameter,
+				Message: "Unknown command: " + command,
+			}
 		}
 	}
 
@@ -4217,7 +4352,27 @@ type parsedRPCCmd struct {
 // command and runs the appropriate handler to reply to the command.  Any
 // commands which are not recognized or not implemented will return an error
 // suitable for use in replies.
-func (s *rpcServer) standardCmdResult(cmd *parsedRPCCmd, closeChan <-chan struct{}) (interface{}, error) {
+//
+// isAdmin reports whether or not the request was made using admin
+// credentials.  It is only consulted by commands whose result depends on the
+// authenticated identity of the caller.
+//
+// The closeChan is non-nil for requests received over a single-shot HTTP POST
+// connection and nil for requests received over a websocket connection, so it
+// is also used to determine the transport the caller is using.
+func (s *rpcServer) standardCmdResult(cmd *parsedRPCCmd, closeChan <-chan struct{}, isAdmin bool) (interface{}, error) {
+	// Service the capability discovery command directly since its result
+	// depends on the authenticated identity of the caller, which ordinary
+	// command handlers do not receive.  The query only reports metadata and
+	// never executes the commands it lists.
+	if _, ok := rpcSpecialDispatch[cmd.method]; ok {
+		transport := btcjson.RPCTransportWebsocket
+		if closeChan != nil {
+			transport = btcjson.RPCTransportHTTP
+		}
+		return s.rpcCommandsDiscovery(isAdmin, transport), nil
+	}
+
 	handler, ok := rpcHandlers[cmd.method]
 	if ok {
 		goto handled
@@ -4236,6 +4391,157 @@ func (s *rpcServer) standardCmdResult(cmd *parsedRPCCmd, closeChan <-chan struct
 handled:
 
 	return handler(s, cmd.cmd, closeChan)
+}
+
+// rpcCommandsDiscovery builds the result for the getrpccommands capability
+// discovery command for the provided authenticated identity and transport.
+// It is purely introspective: it does not execute any of the listed commands
+// or modify any node state.
+//
+// The returned command list is stably sorted by name.  The authorization
+// information is computed with the exact same rule used to gate command
+// execution, so the report for a limited user matches the permissions actually
+// enforced when invoking the commands.
+func (s *rpcServer) rpcCommandsDiscovery(isAdmin bool, transport string) *btcjson.GetRPCCommandsResult {
+	// Gather the set of all recognized command names.  A command is
+	// recognized when it is handled as a standard command over HTTP, is a
+	// websocket-specific command, or is serviced specially.
+	recognized := make(map[string]struct{})
+	for method := range rpcHandlers {
+		recognized[method] = struct{}{}
+	}
+	for method := range rpcAskWallet {
+		recognized[method] = struct{}{}
+	}
+	for method := range rpcUnimplemented {
+		recognized[method] = struct{}{}
+	}
+	for method := range wsHandlers {
+		recognized[method] = struct{}{}
+	}
+	for method := range rpcSpecialDispatch {
+		recognized[method] = struct{}{}
+	}
+	for method := range wsSpecialDispatch {
+		recognized[method] = struct{}{}
+	}
+
+	methods := make([]string, 0, len(recognized))
+	for method := range recognized {
+		methods = append(methods, method)
+	}
+	sort.Strings(methods)
+
+	indexStatuses := map[rpcIndexKind]btcjson.RPCIndexStatus{
+		rpcIndexTx:   s.indexStatus(rpcIndexTx),
+		rpcIndexAddr: s.indexStatus(rpcIndexAddr),
+		rpcIndexCF:   s.indexStatus(rpcIndexCF),
+	}
+
+	commands := make([]btcjson.RPCCommandInfo, 0, len(methods))
+	for _, method := range methods {
+		_, isHTTPHandler := rpcHandlers[method]
+		_, isWallet := rpcAskWallet[method]
+		_, isUnimplemented := rpcUnimplemented[method]
+		_, isWSHandler := wsHandlers[method]
+		_, isSpecial := rpcSpecialDispatch[method]
+		_, isWSSpecial := wsSpecialDispatch[method]
+
+		// Commands serviced by the standard command path
+		// (implemented handlers, wallet commands, unimplemented
+		// commands, and specially dispatched commands) are reachable
+		// over HTTP.  Websocket-specific commands are not.
+		http := isHTTPHandler || isWallet || isUnimplemented ||
+			isSpecial
+		ws := http || isWSHandler || isWSSpecial
+
+		// Determine the implementation status.
+		var status string
+		switch {
+		case isWallet:
+			status = btcjson.RPCCommandStatusWalletRequired
+		case isUnimplemented:
+			status = btcjson.RPCCommandStatusUnimplemented
+		default:
+			status = btcjson.RPCCommandStatusImplemented
+		}
+
+		// Determine whether the authenticated identity is allowed to
+		// invoke the command using the exact same check used to gate
+		// command execution for both HTTP and websocket requests.
+		// The websocket authenticate command is the unauthenticated
+		// handshake, so it is always invocable.
+		authorized := isAdmin
+		if !authorized {
+			_, authorized = rpcLimited[method]
+		}
+		if isWSSpecial {
+			authorized = true
+		}
+
+		info := btcjson.RPCCommandInfo{
+			Name:       method,
+			Status:     status,
+			HTTP:       http,
+			Websocket:  ws,
+			Authorized: authorized,
+		}
+
+		// Attach the optional index requirements, including whether
+		// each index is enabled and the exact scope of the
+		// dependency.  Conditional requirements never make the
+		// command unavailable as a whole.
+		if reqs, ok := rpcIndexRequirements[method]; ok {
+			info.Requirements = make([]btcjson.RPCIndexRequirement, 0,
+				len(reqs))
+			for _, req := range reqs {
+				info.Requirements = append(info.Requirements,
+					btcjson.RPCIndexRequirement{
+						Index:       string(req.index),
+						Enabled:     indexStatuses[req.index].Enabled,
+						Conditional: req.conditional,
+						Parameter:   req.parameter,
+						Detail:      req.detail,
+					})
+			}
+		}
+
+		commands = append(commands, info)
+	}
+
+	// Enumerate the server-to-client notifications this node delivers,
+	// which are the registered websocket-only notification methods.
+	// Notifications flagged as wallet-only belong to a connected wallet
+	// and are never delivered by the chain server, so they are excluded.
+	// Notifications are delivered over websockets only and are not
+	// invokable commands.
+	var notifications []btcjson.RPCNotificationInfo
+	for _, method := range btcjson.RegisteredCmdMethods() {
+		flags, err := btcjson.MethodUsageFlags(method)
+		if err != nil || flags&btcjson.UFNotification == 0 ||
+			flags&btcjson.UFWalletOnly != 0 {
+			continue
+		}
+		notifications = append(notifications, btcjson.RPCNotificationInfo{
+			Name:      method,
+			HTTP:      false,
+			Websocket: true,
+		})
+	}
+
+	return &btcjson.GetRPCCommandsResult{
+		RPCVersion:    jsonrpcSemverString,
+		Transport:     transport,
+		Authenticated: true,
+		Admin:         isAdmin,
+		Indexes: btcjson.RPCIndexesStatus{
+			TxIndex:   indexStatuses[rpcIndexTx],
+			AddrIndex: indexStatuses[rpcIndexAddr],
+			CfIndex:   indexStatuses[rpcIndexCF],
+		},
+		Commands:      commands,
+		Notifications: notifications,
+	}
 }
 
 // parseCmd parses a JSON-RPC request object into known concrete command.  The
@@ -4328,7 +4634,7 @@ func (s *rpcServer) processRequest(request *btcjson.Request, isAdmin bool, close
 			jsonErr = parsedCmd.err
 		} else {
 			result, err = s.standardCmdResult(parsedCmd,
-				closeChan)
+				closeChan, isAdmin)
 			if err != nil {
 				if rpcErr, ok := err.(*btcjson.RPCError); ok {
 					jsonErr = rpcErr

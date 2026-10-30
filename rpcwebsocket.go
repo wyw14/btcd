@@ -1700,7 +1700,8 @@ out:
 						if ok {
 							resp, err = wsHandler(c, cmd.cmd)
 						} else {
-							resp, err = c.server.standardCmdResult(cmd, nil)
+							resp, err = c.server.standardCmdResult(cmd, nil,
+								c.isAdmin)
 						}
 
 						// Marshal request output.
@@ -1788,7 +1789,7 @@ func (c *wsClient) serviceRequest(r *parsedRPCCmd) {
 	if ok {
 		result, err = wsHandler(c, r.cmd)
 	} else {
-		result, err = c.server.standardCmdResult(r, nil)
+		result, err = c.server.standardCmdResult(r, nil, c.isAdmin)
 	}
 	reply, err := createMarshalledReply(r.jsonrpc, r.id, result, err)
 	if err != nil {
@@ -2071,11 +2072,14 @@ func handleWebsocketHelp(wsc *wsClient, icmd interface{}) (interface{}, error) {
 
 	// Check that the command asked for is supported and implemented.
 	// Search the list of websocket handlers as well as the main list of
-	// handlers since help should only be provided for those cases.
+	// handlers and commands serviced directly since help should only be
+	// provided for those cases.
 	valid := true
 	if _, ok := rpcHandlers[command]; !ok {
 		if _, ok := wsHandlers[command]; !ok {
-			valid = false
+			if _, ok := rpcSpecialDispatch[command]; !ok {
+				valid = false
+			}
 		}
 	}
 	if !valid {
