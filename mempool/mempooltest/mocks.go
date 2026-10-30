@@ -43,6 +43,20 @@ func (m *MockTxMempool) RawMempoolVerbose() map[string]*btcjson.
 	return args.Get(0).(map[string]*btcjson.GetRawMempoolVerboseResult)
 }
 
+// FeeRateHistogram returns a histogram of the fee rates paid by the
+// transactions currently in the memory pool.
+func (m *MockTxMempool) FeeRateHistogram(
+	boundaries []float64) (*mempool.FeeRateHistogram, error) {
+
+	args := m.Called(boundaries)
+
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+
+	return args.Get(0).(*mempool.FeeRateHistogram), args.Error(1)
+}
+
 // Count returns the number of transactions in the main pool. It does not
 // include the orphan pool.
 func (m *MockTxMempool) Count() int {

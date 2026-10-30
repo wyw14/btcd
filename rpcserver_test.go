@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/btcjson"
 	"github.com/btcsuite/btcd/btcutil/v2"
@@ -666,4 +667,89 @@ func TestGetTxSpendingPrevOut(t *testing.T) {
 	results, err = handleGetTxSpendingPrevOut(s, cmd, closeChan)
 	require.NoError(err)
 	require.Equal(expectedResults, results)
+}
+
+// TestHandleGetMempoolFeeRateHistogram checks that the handler converts the
+// mempool histogram into the expected JSON-RPC result, including the underflow
+// and overflow bucket edges, and that invalid boundaries surface as invalid
+// parameter errors.
+func TestHandleGetMempoolFeeRateHistogram(t *testing.T) {
+	t.Parallel()
+
+	require := require.New(t)
+
+	// Create a mock mempool and a testing server backed by it.
+	mm := &mempooltest.MockTxMempool{}
+	defer mm.AssertExpectations(t)
+	s := &rpcServer{cfg: rpcserverConfig{
+		TxMemPool: mm,
+	}}
+
+	boundaries := []float64{1, 5}
+	snapshotTime := time.Unix(1700000000, 0)
+
+	// Mock a snapshot with an underflow bucket, one interval bucket, and
+	// an overflow bucket.
+	mm.On("FeeRateHistogram", boundaries).Return(&mempool.FeeRateHistogram{
+		SnapshotTime: snapshotTime,
+		Boundaries:   boundaries,
+		Buckets: []mempool.FeeRateHistogramBucket{{
+			Count: 2,
+			VSize: 200,
+			Fee:   100,
+		}, {
+			Count: 3,
+			VSize: 300,
+			Fee:   1200,
+		}, {
+			Count: 1,
+			VSize: 150,
+			Fee:   9000,
+		}},
+		TotalCount: 6,
+		TotalVSize: 650,
+		TotalFee:   10300,
+	}, nil).Once()
+
+	expected := &btcjson.GetMempoolFeeRateHistogramResult{
+		SnapshotTime: snapshotTime.Unix(),
+		Buckets: []btcjson.GetMempoolFeeRateHistogramBucketResult{{
+			FeeRateCeiling: btcjson.Float64(1),
+			Count:          2,
+			VSize:          200,
+			Fee:            100,
+		}, {
+			FeeRateFloor:   btcjson.Float64(1),
+			FeeRateCeiling: btcjson.Float64(5),
+			Count:          3,
+			VSize:          300,
+			Fee:            1200,
+		}, {
+			FeeRateFloor: btcjson.Float64(5),
+			Count:        1,
+			VSize:        150,
+			Fee:          9000,
+		}},
+		TotalCount: 6,
+		TotalVSize: 650,
+		TotalFee:   10300,
+	}
+
+	cmd := btcjson.NewGetMempoolFeeRateHistogramCmd(boundaries)
+	result, err := handleGetMempoolFeeRateHistogram(s, cmd, make(chan struct{}))
+	require.NoError(err)
+	require.Equal(expected, result)
+
+	// Invalid boundaries must be reported as an invalid parameter RPC
+	// error.
+	invalidBoundaries := []float64{5, 1}
+	mm.On("FeeRateHistogram", invalidBoundaries).Return(nil,
+		errors.New("fee rate bucket boundaries must be strictly increasing")).Once()
+
+	cmd = btcjson.NewGetMempoolFeeRateHistogramCmd(invalidBoundaries)
+	_, err = handleGetMempoolFeeRateHistogram(s, cmd, make(chan struct{}))
+	require.Error(err)
+	rpcErr, ok := err.(*btcjson.RPCError)
+	require.True(ok)
+	require.Equal(btcjson.ErrRPCInvalidParameter, rpcErr.Code)
 }

@@ -195,6 +195,21 @@ func TestBtcdExtCmds(t *testing.T) {
 			},
 		},
 		{
+			name: "getmempoolfeeratehistogram",
+			newCmd: func() (interface{}, error) {
+				return btcjson.NewCmd("getmempoolfeeratehistogram",
+					[]float64{1, 5.5, 20})
+			},
+			staticCmd: func() interface{} {
+				return btcjson.NewGetMempoolFeeRateHistogramCmd(
+					[]float64{1, 5.5, 20})
+			},
+			marshalled: `{"jsonrpc":"1.0","method":"getmempoolfeeratehistogram","params":[[1,5.5,20]],"id":1}`,
+			unmarshalled: &btcjson.GetMempoolFeeRateHistogramCmd{
+				Boundaries: []float64{1, 5.5, 20},
+			},
+		},
+		{
 			name: "version",
 			newCmd: func() (interface{}, error) {
 				return btcjson.NewCmd("version")

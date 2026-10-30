@@ -727,6 +727,45 @@ func (c *Client) GetMempoolEntry(txHash string) (*btcjson.GetMempoolEntryResult,
 	return c.GetMempoolEntryAsync(txHash).Receive()
 }
 
+// FutureGetMempoolFeeRateHistogramResult is a future promise to deliver the
+// result of a GetMempoolFeeRateHistogramAsync RPC invocation (or an applicable
+// error).
+type FutureGetMempoolFeeRateHistogramResult chan *Response
+
+// Receive waits for the Response promised by the future and returns a histogram
+// of the fee rates paid by the transactions currently in the memory pool.
+func (r FutureGetMempoolFeeRateHistogramResult) Receive() (*btcjson.GetMempoolFeeRateHistogramResult, error) {
+	res, err := ReceiveFuture(r)
+	if err != nil {
+		return nil, err
+	}
+
+	var hist btcjson.GetMempoolFeeRateHistogramResult
+	if err := json.Unmarshal(res, &hist); err != nil {
+		return nil, err
+	}
+	return &hist, nil
+}
+
+// GetMempoolFeeRateHistogramAsync returns an instance of a type that can be
+// used to get the result of the RPC at some future time by invoking the Receive
+// function on the returned instance.
+//
+// See GetMempoolFeeRateHistogram for the blocking version and more details.
+func (c *Client) GetMempoolFeeRateHistogramAsync(boundaries []float64) FutureGetMempoolFeeRateHistogramResult {
+	cmd := btcjson.NewGetMempoolFeeRateHistogramCmd(boundaries)
+	return c.SendCmd(cmd)
+}
+
+// GetMempoolFeeRateHistogram returns a histogram of the fee rates paid by the
+// transactions currently in the memory pool.  The boundaries must be strictly
+// increasing, finite, non-negative fee rates in satoshis per virtual byte and
+// define left-closed, right-open intervals with additional underflow and
+// overflow buckets.
+func (c *Client) GetMempoolFeeRateHistogram(boundaries []float64) (*btcjson.GetMempoolFeeRateHistogramResult, error) {
+	return c.GetMempoolFeeRateHistogramAsync(boundaries).Receive()
+}
+
 // FutureGetRawMempoolResult is a future promise to deliver the result of a
 // GetRawMempoolAsync RPC invocation (or an applicable error).
 type FutureGetRawMempoolResult chan *Response

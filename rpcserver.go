@@ -134,59 +134,60 @@ type commandHandler func(*rpcServer, interface{}, <-chan struct{}) (interface{},
 // a dependency loop.
 var rpcHandlers map[string]commandHandler
 var rpcHandlersBeforeInit = map[string]commandHandler{
-	"addnode":                handleAddNode,
-	"createrawtransaction":   handleCreateRawTransaction,
-	"debuglevel":             handleDebugLevel,
-	"decoderawtransaction":   handleDecodeRawTransaction,
-	"decodescript":           handleDecodeScript,
-	"estimatefee":            handleEstimateFee,
-	"generate":               handleGenerate,
-	"getaddednodeinfo":       handleGetAddedNodeInfo,
-	"getbestblock":           handleGetBestBlock,
-	"getbestblockhash":       handleGetBestBlockHash,
-	"getblock":               handleGetBlock,
-	"getblockchaininfo":      handleGetBlockChainInfo,
-	"getblockcount":          handleGetBlockCount,
-	"getblockhash":           handleGetBlockHash,
-	"getblockheader":         handleGetBlockHeader,
-	"getblocktemplate":       handleGetBlockTemplate,
-	"getchaintips":           handleGetChainTips,
-	"getcfilter":             handleGetCFilter,
-	"getcfilterheader":       handleGetCFilterHeader,
-	"getconnectioncount":     handleGetConnectionCount,
-	"getcurrentnet":          handleGetCurrentNet,
-	"getdifficulty":          handleGetDifficulty,
-	"getgenerate":            handleGetGenerate,
-	"gethashespersec":        handleGetHashesPerSec,
-	"getheaders":             handleGetHeaders,
-	"getinfo":                handleGetInfo,
-	"getmempoolinfo":         handleGetMempoolInfo,
-	"getmininginfo":          handleGetMiningInfo,
-	"getnettotals":           handleGetNetTotals,
-	"getnetworkhashps":       handleGetNetworkHashPS,
-	"getnodeaddresses":       handleGetNodeAddresses,
-	"getpeerinfo":            handleGetPeerInfo,
-	"getrawmempool":          handleGetRawMempool,
-	"getrawtransaction":      handleGetRawTransaction,
-	"gettxout":               handleGetTxOut,
-	"help":                   handleHelp,
-	"invalidateblock":        handleInvalidateBlock,
-	"node":                   handleNode,
-	"ping":                   handlePing,
-	"reconsiderblock":        handleReconsiderBlock,
-	"searchrawtransactions":  handleSearchRawTransactions,
-	"sendrawtransaction":     handleSendRawTransaction,
-	"setgenerate":            handleSetGenerate,
-	"signmessagewithprivkey": handleSignMessageWithPrivKey,
-	"stop":                   handleStop,
-	"submitblock":            handleSubmitBlock,
-	"uptime":                 handleUptime,
-	"validateaddress":        handleValidateAddress,
-	"verifychain":            handleVerifyChain,
-	"verifymessage":          handleVerifyMessage,
-	"version":                handleVersion,
-	"testmempoolaccept":      handleTestMempoolAccept,
-	"gettxspendingprevout":   handleGetTxSpendingPrevOut,
+	"addnode":                    handleAddNode,
+	"createrawtransaction":       handleCreateRawTransaction,
+	"debuglevel":                 handleDebugLevel,
+	"decoderawtransaction":       handleDecodeRawTransaction,
+	"decodescript":               handleDecodeScript,
+	"estimatefee":                handleEstimateFee,
+	"generate":                   handleGenerate,
+	"getaddednodeinfo":           handleGetAddedNodeInfo,
+	"getbestblock":               handleGetBestBlock,
+	"getbestblockhash":           handleGetBestBlockHash,
+	"getblock":                   handleGetBlock,
+	"getblockchaininfo":          handleGetBlockChainInfo,
+	"getblockcount":              handleGetBlockCount,
+	"getblockhash":               handleGetBlockHash,
+	"getblockheader":             handleGetBlockHeader,
+	"getblocktemplate":           handleGetBlockTemplate,
+	"getchaintips":               handleGetChainTips,
+	"getcfilter":                 handleGetCFilter,
+	"getcfilterheader":           handleGetCFilterHeader,
+	"getconnectioncount":         handleGetConnectionCount,
+	"getcurrentnet":              handleGetCurrentNet,
+	"getdifficulty":              handleGetDifficulty,
+	"getgenerate":                handleGetGenerate,
+	"gethashespersec":            handleGetHashesPerSec,
+	"getheaders":                 handleGetHeaders,
+	"getinfo":                    handleGetInfo,
+	"getmempoolfeeratehistogram": handleGetMempoolFeeRateHistogram,
+	"getmempoolinfo":             handleGetMempoolInfo,
+	"getmininginfo":              handleGetMiningInfo,
+	"getnettotals":               handleGetNetTotals,
+	"getnetworkhashps":           handleGetNetworkHashPS,
+	"getnodeaddresses":           handleGetNodeAddresses,
+	"getpeerinfo":                handleGetPeerInfo,
+	"getrawmempool":              handleGetRawMempool,
+	"getrawtransaction":          handleGetRawTransaction,
+	"gettxout":                   handleGetTxOut,
+	"help":                       handleHelp,
+	"invalidateblock":            handleInvalidateBlock,
+	"node":                       handleNode,
+	"ping":                       handlePing,
+	"reconsiderblock":            handleReconsiderBlock,
+	"searchrawtransactions":      handleSearchRawTransactions,
+	"sendrawtransaction":         handleSendRawTransaction,
+	"setgenerate":                handleSetGenerate,
+	"signmessagewithprivkey":     handleSignMessageWithPrivKey,
+	"stop":                       handleStop,
+	"submitblock":                handleSubmitBlock,
+	"uptime":                     handleUptime,
+	"validateaddress":            handleValidateAddress,
+	"verifychain":                handleVerifyChain,
+	"verifymessage":              handleVerifyMessage,
+	"version":                    handleVersion,
+	"testmempoolaccept":          handleTestMempoolAccept,
+	"gettxspendingprevout":       handleGetTxSpendingPrevOut,
 }
 
 // list of commands that we recognize, but for which btcd has no support because
@@ -262,37 +263,38 @@ var rpcLimited = map[string]struct{}{
 	"help": {},
 
 	// HTTP/S-only commands
-	"createrawtransaction":  {},
-	"decoderawtransaction":  {},
-	"decodescript":          {},
-	"estimatefee":           {},
-	"getbestblock":          {},
-	"getbestblockhash":      {},
-	"getblock":              {},
-	"getblockcount":         {},
-	"getblockhash":          {},
-	"getblockheader":        {},
-	"getchaintips":          {},
-	"getcfilter":            {},
-	"getcfilterheader":      {},
-	"getcurrentnet":         {},
-	"getdifficulty":         {},
-	"getheaders":            {},
-	"getinfo":               {},
-	"getnettotals":          {},
-	"getnetworkhashps":      {},
-	"getrawmempool":         {},
-	"getrawtransaction":     {},
-	"gettxout":              {},
-	"invalidateblock":       {},
-	"reconsiderblock":       {},
-	"searchrawtransactions": {},
-	"sendrawtransaction":    {},
-	"submitblock":           {},
-	"uptime":                {},
-	"validateaddress":       {},
-	"verifymessage":         {},
-	"version":               {},
+	"createrawtransaction":       {},
+	"decoderawtransaction":       {},
+	"decodescript":               {},
+	"estimatefee":                {},
+	"getbestblock":               {},
+	"getbestblockhash":           {},
+	"getblock":                   {},
+	"getblockcount":              {},
+	"getblockhash":               {},
+	"getblockheader":             {},
+	"getchaintips":               {},
+	"getcfilter":                 {},
+	"getcfilterheader":           {},
+	"getcurrentnet":              {},
+	"getdifficulty":              {},
+	"getheaders":                 {},
+	"getinfo":                    {},
+	"getmempoolfeeratehistogram": {},
+	"getnettotals":               {},
+	"getnetworkhashps":           {},
+	"getrawmempool":              {},
+	"getrawtransaction":          {},
+	"gettxout":                   {},
+	"invalidateblock":            {},
+	"reconsiderblock":            {},
+	"searchrawtransactions":      {},
+	"sendrawtransaction":         {},
+	"submitblock":                {},
+	"uptime":                     {},
+	"validateaddress":            {},
+	"verifymessage":              {},
+	"version":                    {},
 }
 
 // builderScript is a convenience function which is used for hard-coded scripts
@@ -2618,6 +2620,55 @@ func handleGetPeerInfo(s *rpcServer, cmd interface{}, closeChan <-chan struct{})
 		infos = append(infos, info)
 	}
 	return infos, nil
+}
+
+// handleGetMempoolFeeRateHistogram implements the
+// getmempoolfeeratehistogram command.
+func handleGetMempoolFeeRateHistogram(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
+	c := cmd.(*btcjson.GetMempoolFeeRateHistogramCmd)
+
+	hist, err := s.cfg.TxMemPool.FeeRateHistogram(c.Boundaries)
+	if err != nil {
+		return nil, &btcjson.RPCError{
+			Code:    btcjson.ErrRPCInvalidParameter,
+			Message: err.Error(),
+		}
+	}
+
+	result := &btcjson.GetMempoolFeeRateHistogramResult{
+		SnapshotTime: hist.SnapshotTime.Unix(),
+		Buckets: make(
+			[]btcjson.GetMempoolFeeRateHistogramBucketResult,
+			len(hist.Buckets)),
+		TotalCount: hist.TotalCount,
+		TotalVSize: hist.TotalVSize,
+		TotalFee:   hist.TotalFee,
+	}
+	for i := range hist.Buckets {
+		bucket := &result.Buckets[i]
+
+		// The first bucket is the underflow bucket with no lower fee
+		// rate boundary, while every other bucket's inclusive lower
+		// boundary is the preceding edge.
+		if i > 0 {
+			floor := hist.Boundaries[i-1]
+			bucket.FeeRateFloor = &floor
+		}
+
+		// The last bucket is the overflow bucket with no upper fee
+		// rate boundary, while every other bucket's exclusive upper
+		// boundary is the matching edge.
+		if i < len(hist.Boundaries) {
+			ceiling := hist.Boundaries[i]
+			bucket.FeeRateCeiling = &ceiling
+		}
+
+		bucket.Count = hist.Buckets[i].Count
+		bucket.VSize = hist.Buckets[i].VSize
+		bucket.Fee = hist.Buckets[i].Fee
+	}
+
+	return result, nil
 }
 
 // handleGetRawMempool implements the getrawmempool command.

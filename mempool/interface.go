@@ -24,6 +24,14 @@ type TxMempool interface {
 	// populated btcjson result.
 	RawMempoolVerbose() map[string]*btcjson.GetRawMempoolVerboseResult
 
+	// FeeRateHistogram returns a histogram of the fee rates paid by the
+	// transactions currently in the memory pool.  The boundaries must be
+	// strictly increasing, finite, non-negative fee rates in satoshis per
+	// virtual byte and define left-closed, right-open intervals plus
+	// underflow and overflow buckets.  The statistics are computed from a
+	// single snapshot of the main pool and do not include orphans.
+	FeeRateHistogram(boundaries []float64) (*FeeRateHistogram, error)
+
 	// Count returns the number of transactions in the main pool. It does
 	// not include the orphan pool.
 	Count() int

@@ -141,6 +141,27 @@ type VersionCmd struct{}
 // github.com/decred/dcrd/dcrjson.
 func NewVersionCmd() *VersionCmd { return new(VersionCmd) }
 
+// GetMempoolFeeRateHistogramCmd defines the getmempoolfeeratehistogram
+// JSON-RPC command.  This command is not a standard Bitcoin command.  It is an
+// extension for btcd.
+type GetMempoolFeeRateHistogramCmd struct {
+	// Boundaries defines the strictly increasing, finite, non-negative fee
+	// rate bucket boundaries in satoshis per virtual byte.  The resulting
+	// histogram contains one bucket per interval between consecutive
+	// boundaries, plus underflow and overflow buckets for transactions with
+	// fee rates below the first and at or above the last boundary.
+	Boundaries []float64
+}
+
+// NewGetMempoolFeeRateHistogramCmd returns a new instance which can be used to
+// issue a getmempoolfeeratehistogram JSON-RPC command.  This command is not a
+// standard Bitcoin command.  It is an extension for btcd.
+func NewGetMempoolFeeRateHistogramCmd(boundaries []float64) *GetMempoolFeeRateHistogramCmd {
+	return &GetMempoolFeeRateHistogramCmd{
+		Boundaries: boundaries,
+	}
+}
+
 func init() {
 	// No special flags for commands in this file.
 	flags := UsageFlag(0)
@@ -152,5 +173,6 @@ func init() {
 	MustRegisterCmd("getbestblock", (*GetBestBlockCmd)(nil), flags)
 	MustRegisterCmd("getcurrentnet", (*GetCurrentNetCmd)(nil), flags)
 	MustRegisterCmd("getheaders", (*GetHeadersCmd)(nil), flags)
+	MustRegisterCmd("getmempoolfeeratehistogram", (*GetMempoolFeeRateHistogramCmd)(nil), flags)
 	MustRegisterCmd("version", (*VersionCmd)(nil), flags)
 }
