@@ -205,6 +205,17 @@ func TestBtcdExtCmds(t *testing.T) {
 			marshalled:   `{"jsonrpc":"1.0","method":"version","params":[],"id":1}`,
 			unmarshalled: &btcjson.VersionCmd{},
 		},
+		{
+			name: "getnetworkgroupdistribution",
+			newCmd: func() (interface{}, error) {
+				return btcjson.NewCmd("getnetworkgroupdistribution")
+			},
+			staticCmd: func() interface{} {
+				return btcjson.NewGetNetworkGroupDistributionCmd()
+			},
+			marshalled:   `{"jsonrpc":"1.0","method":"getnetworkgroupdistribution","params":[],"id":1}`,
+			unmarshalled: &btcjson.GetNetworkGroupDistributionCmd{},
+		},
 	}
 
 	t.Logf("Running %d tests", len(tests))

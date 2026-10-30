@@ -20,6 +20,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -27,6 +28,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/address/v2"
+	"github.com/btcsuite/btcd/addrmgr"
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/blockchain/indexers"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
@@ -134,59 +136,60 @@ type commandHandler func(*rpcServer, interface{}, <-chan struct{}) (interface{},
 // a dependency loop.
 var rpcHandlers map[string]commandHandler
 var rpcHandlersBeforeInit = map[string]commandHandler{
-	"addnode":                handleAddNode,
-	"createrawtransaction":   handleCreateRawTransaction,
-	"debuglevel":             handleDebugLevel,
-	"decoderawtransaction":   handleDecodeRawTransaction,
-	"decodescript":           handleDecodeScript,
-	"estimatefee":            handleEstimateFee,
-	"generate":               handleGenerate,
-	"getaddednodeinfo":       handleGetAddedNodeInfo,
-	"getbestblock":           handleGetBestBlock,
-	"getbestblockhash":       handleGetBestBlockHash,
-	"getblock":               handleGetBlock,
-	"getblockchaininfo":      handleGetBlockChainInfo,
-	"getblockcount":          handleGetBlockCount,
-	"getblockhash":           handleGetBlockHash,
-	"getblockheader":         handleGetBlockHeader,
-	"getblocktemplate":       handleGetBlockTemplate,
-	"getchaintips":           handleGetChainTips,
-	"getcfilter":             handleGetCFilter,
-	"getcfilterheader":       handleGetCFilterHeader,
-	"getconnectioncount":     handleGetConnectionCount,
-	"getcurrentnet":          handleGetCurrentNet,
-	"getdifficulty":          handleGetDifficulty,
-	"getgenerate":            handleGetGenerate,
-	"gethashespersec":        handleGetHashesPerSec,
-	"getheaders":             handleGetHeaders,
-	"getinfo":                handleGetInfo,
-	"getmempoolinfo":         handleGetMempoolInfo,
-	"getmininginfo":          handleGetMiningInfo,
-	"getnettotals":           handleGetNetTotals,
-	"getnetworkhashps":       handleGetNetworkHashPS,
-	"getnodeaddresses":       handleGetNodeAddresses,
-	"getpeerinfo":            handleGetPeerInfo,
-	"getrawmempool":          handleGetRawMempool,
-	"getrawtransaction":      handleGetRawTransaction,
-	"gettxout":               handleGetTxOut,
-	"help":                   handleHelp,
-	"invalidateblock":        handleInvalidateBlock,
-	"node":                   handleNode,
-	"ping":                   handlePing,
-	"reconsiderblock":        handleReconsiderBlock,
-	"searchrawtransactions":  handleSearchRawTransactions,
-	"sendrawtransaction":     handleSendRawTransaction,
-	"setgenerate":            handleSetGenerate,
-	"signmessagewithprivkey": handleSignMessageWithPrivKey,
-	"stop":                   handleStop,
-	"submitblock":            handleSubmitBlock,
-	"uptime":                 handleUptime,
-	"validateaddress":        handleValidateAddress,
-	"verifychain":            handleVerifyChain,
-	"verifymessage":          handleVerifyMessage,
-	"version":                handleVersion,
-	"testmempoolaccept":      handleTestMempoolAccept,
-	"gettxspendingprevout":   handleGetTxSpendingPrevOut,
+	"addnode":                     handleAddNode,
+	"createrawtransaction":        handleCreateRawTransaction,
+	"debuglevel":                  handleDebugLevel,
+	"decoderawtransaction":        handleDecodeRawTransaction,
+	"decodescript":                handleDecodeScript,
+	"estimatefee":                 handleEstimateFee,
+	"generate":                    handleGenerate,
+	"getaddednodeinfo":            handleGetAddedNodeInfo,
+	"getbestblock":                handleGetBestBlock,
+	"getbestblockhash":            handleGetBestBlockHash,
+	"getblock":                    handleGetBlock,
+	"getblockchaininfo":           handleGetBlockChainInfo,
+	"getblockcount":               handleGetBlockCount,
+	"getblockhash":                handleGetBlockHash,
+	"getblockheader":              handleGetBlockHeader,
+	"getblocktemplate":            handleGetBlockTemplate,
+	"getchaintips":                handleGetChainTips,
+	"getcfilter":                  handleGetCFilter,
+	"getcfilterheader":            handleGetCFilterHeader,
+	"getconnectioncount":          handleGetConnectionCount,
+	"getcurrentnet":               handleGetCurrentNet,
+	"getdifficulty":               handleGetDifficulty,
+	"getgenerate":                 handleGetGenerate,
+	"gethashespersec":             handleGetHashesPerSec,
+	"getheaders":                  handleGetHeaders,
+	"getinfo":                     handleGetInfo,
+	"getmempoolinfo":              handleGetMempoolInfo,
+	"getmininginfo":               handleGetMiningInfo,
+	"getnettotals":                handleGetNetTotals,
+	"getnetworkgroupdistribution": handleGetNetworkGroupDistribution,
+	"getnetworkhashps":            handleGetNetworkHashPS,
+	"getnodeaddresses":            handleGetNodeAddresses,
+	"getpeerinfo":                 handleGetPeerInfo,
+	"getrawmempool":               handleGetRawMempool,
+	"getrawtransaction":           handleGetRawTransaction,
+	"gettxout":                    handleGetTxOut,
+	"help":                        handleHelp,
+	"invalidateblock":             handleInvalidateBlock,
+	"node":                        handleNode,
+	"ping":                        handlePing,
+	"reconsiderblock":             handleReconsiderBlock,
+	"searchrawtransactions":       handleSearchRawTransactions,
+	"sendrawtransaction":          handleSendRawTransaction,
+	"setgenerate":                 handleSetGenerate,
+	"signmessagewithprivkey":      handleSignMessageWithPrivKey,
+	"stop":                        handleStop,
+	"submitblock":                 handleSubmitBlock,
+	"uptime":                      handleUptime,
+	"validateaddress":             handleValidateAddress,
+	"verifychain":                 handleVerifyChain,
+	"verifymessage":               handleVerifyMessage,
+	"version":                     handleVersion,
+	"testmempoolaccept":           handleTestMempoolAccept,
+	"gettxspendingprevout":        handleGetTxSpendingPrevOut,
 }
 
 // list of commands that we recognize, but for which btcd has no support because
@@ -2618,6 +2621,157 @@ func handleGetPeerInfo(s *rpcServer, cmd interface{}, closeChan <-chan struct{})
 		infos = append(infos, info)
 	}
 	return infos, nil
+}
+
+// unroutableNetworkGroup is the group key used for connected peers that do
+// not have a usable network address.  It matches the "unroutable" key produced
+// by addrmgr.GroupKey.
+const unroutableNetworkGroup = "unroutable"
+
+// networkGroupPeerInfo houses the information about a connected peer needed
+// to calculate the network group distribution.  It is extracted from the
+// connected peer snapshot so the distribution is calculated from a single,
+// consistent batch without holding peer locks or performing network access.
+type networkGroupPeerInfo struct {
+	id      int32
+	inbound bool
+	group   string
+}
+
+// handleGetNetworkGroupDistribution implements the
+// getnetworkgroupdistribution command.
+//
+// It reports how the currently connected peers are distributed across the
+// address manager's network groups.  This is a report-only query: it does not
+// disconnect any peers, does not change peer selection, and does not perform
+// any DNS, geo-IP, or other external network resolution.
+func handleGetNetworkGroupDistribution(s *rpcServer, cmd interface{}, closeChan <-chan struct{}) (interface{}, error) {
+	// Snapshot the connected peers and the sync peer ID for the same
+	// point in time so the distribution reflects a single consistent
+	// batch of peers.
+	peers := s.cfg.ConnMgr.ConnectedPeers()
+	syncPeerID := s.cfg.SyncMgr.SyncPeerID()
+
+	peerInfos := make([]networkGroupPeerInfo, 0, len(peers))
+	for _, p := range peers {
+		peer := p.ToPeer()
+
+		// GroupKey is a local computation and never performs network
+		// I/O.  A peer without a usable network address (for example
+		// one that has not completed its handshake) is classified as
+		// unroutable rather than causing this report-only command to
+		// fail.
+		group := unroutableNetworkGroup
+		if na := peer.NA(); na != nil {
+			group = addrmgr.GroupKey(na)
+		}
+
+		peerInfos = append(peerInfos, networkGroupPeerInfo{
+			id:      peer.ID(),
+			inbound: peer.Inbound(),
+			group:   group,
+		})
+	}
+
+	return networkGroupDistribution(peerInfos, syncPeerID), nil
+}
+
+// networkGroupDistribution aggregates the provided connected peer snapshot by
+// the supplied network group keys and returns the connection distribution
+// used by the getnetworkgroupdistribution RPC.
+//
+// The group keys must be calculated with the address manager's network group
+// rules (addrmgr.GroupKey) so IPv4, IPv6, Tor, local, and unroutable peers
+// are grouped consistently with outbound peer selection.  This function does
+// not perform DNS, geo-IP, or any other network resolution and does not alter
+// any peer.  An empty snapshot yields an empty group list and zero shares.
+// The returned groups are stably sorted by their group key and the peer IDs
+// within each group are sorted by ID.
+func networkGroupDistribution(peers []networkGroupPeerInfo, syncPeerID int32) *btcjson.GetNetworkGroupDistributionResult {
+	type groupAccum struct {
+		connections int32
+		inbound     int32
+		outbound    int32
+		peerIDs     []int32
+	}
+
+	accum := make(map[string]*groupAccum)
+	var totalInbound, totalOutbound int32
+	syncPeerGroup := ""
+	for _, p := range peers {
+		g, ok := accum[p.group]
+		if !ok {
+			g = &groupAccum{}
+			accum[p.group] = g
+		}
+		g.connections++
+		g.peerIDs = append(g.peerIDs, p.id)
+		if p.inbound {
+			g.inbound++
+			totalInbound++
+		} else {
+			g.outbound++
+			totalOutbound++
+		}
+
+		// syncPeerID of 0 means there is no sync peer.
+		if syncPeerID != 0 && p.id == syncPeerID {
+			syncPeerGroup = p.group
+		}
+	}
+
+	// Sort the group keys so the result ordering is stable regardless of
+	// map iteration order.
+	groupKeys := make([]string, 0, len(accum))
+	for key := range accum {
+		groupKeys = append(groupKeys, key)
+	}
+	sort.Strings(groupKeys)
+
+	total := len(peers)
+	result := &btcjson.GetNetworkGroupDistributionResult{
+		TotalConnections:    int32(total),
+		InboundConnections:  totalInbound,
+		OutboundConnections: totalOutbound,
+		Groups: make(
+			[]btcjson.NetworkGroupResult, 0, len(groupKeys),
+		),
+		SyncPeerGroup: syncPeerGroup,
+	}
+
+	for _, key := range groupKeys {
+		g := accum[key]
+
+		// Return a sorted copy of the peer IDs so the ordering does
+		// not depend on the order in which peers happened to be
+		// snapshotted.
+		peerIDs := make([]int32, len(g.peerIDs))
+		copy(peerIDs, g.peerIDs)
+		sort.Slice(peerIDs, func(i, j int) bool {
+			return peerIDs[i] < peerIDs[j]
+		})
+
+		var share float64
+		if total > 0 {
+			share = float64(g.connections) / float64(total)
+		}
+
+		result.Groups = append(result.Groups, btcjson.NetworkGroupResult{
+			Group:       key,
+			Connections: g.connections,
+			Inbound:     g.inbound,
+			Outbound:    g.outbound,
+			Peers:       peerIDs,
+			SyncPeer:    syncPeerID != 0 && key == syncPeerGroup,
+			Share:       share,
+		})
+
+		if share > result.LargestGroupShare {
+			result.LargestGroupShare = share
+		}
+	}
+
+	return result
 }
 
 // handleGetRawMempool implements the getrawmempool command.

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -666,4 +667,98 @@ func TestGetTxSpendingPrevOut(t *testing.T) {
 	results, err = handleGetTxSpendingPrevOut(s, cmd, closeChan)
 	require.NoError(err)
 	require.Equal(expectedResults, results)
+}
+
+// TestNetworkGroupDistribution verifies that a connected peer snapshot is
+// aggregated into per-network-group connection counts as expected.
+func TestNetworkGroupDistribution(t *testing.T) {
+	t.Parallel()
+
+	// The peers are intentionally provided out of order so the test also
+	// verifies that the result is stably sorted by group key and that the
+	// peer IDs within each group are sorted.
+	peers := []networkGroupPeerInfo{
+		{id: 9, inbound: true, group: "1.2.0.0"},
+		{id: 7, inbound: false, group: "tor:3"},
+		{id: 4, inbound: true, group: "unroutable"},
+		{id: 5, inbound: false, group: "1.2.0.0"},
+		{id: 3, inbound: true, group: "local"},
+		{id: 1, inbound: false, group: "unroutable"},
+		{id: 2, inbound: true, group: "1.2.0.0"},
+	}
+
+	result := networkGroupDistribution(peers, 7)
+
+	require.Equal(t, int32(7), result.TotalConnections)
+	require.Equal(t, int32(4), result.InboundConnections)
+	require.Equal(t, int32(3), result.OutboundConnections)
+	require.Equal(t, "tor:3", result.SyncPeerGroup)
+	require.InDelta(t, 3.0/7.0, result.LargestGroupShare, 1e-9)
+
+	expectedGroups := []btcjson.NetworkGroupResult{
+		{
+			Group: "1.2.0.0", Connections: 3, Inbound: 2,
+			Outbound: 1, Peers: []int32{2, 5, 9}, Share: 3.0 / 7.0,
+		},
+		{
+			Group: "local", Connections: 1, Inbound: 1,
+			Outbound: 0, Peers: []int32{3}, Share: 1.0 / 7.0,
+		},
+		{
+			Group: "tor:3", Connections: 1, Inbound: 0,
+			Outbound: 1, Peers: []int32{7}, SyncPeer: true,
+			Share: 1.0 / 7.0,
+		},
+		{
+			Group: "unroutable", Connections: 2, Inbound: 1,
+			Outbound: 1, Peers: []int32{1, 4}, Share: 2.0 / 7.0,
+		},
+	}
+	require.Equal(t, expectedGroups, result.Groups)
+
+	// Calculating the distribution again for the same snapshot must
+	// produce an identical result regardless of map iteration order.
+	require.Equal(t, result, networkGroupDistribution(peers, 7))
+}
+
+// TestNetworkGroupDistributionNoConnections verifies the zero connection
+// case returns an empty group list and zero shares.
+func TestNetworkGroupDistributionNoConnections(t *testing.T) {
+	t.Parallel()
+
+	result := networkGroupDistribution(nil, 0)
+
+	require.Equal(t, int32(0), result.TotalConnections)
+	require.Equal(t, int32(0), result.InboundConnections)
+	require.Equal(t, int32(0), result.OutboundConnections)
+	require.Equal(t, "", result.SyncPeerGroup)
+	require.Equal(t, float64(0), result.LargestGroupShare)
+	require.NotNil(t, result.Groups)
+	require.Len(t, result.Groups, 0)
+
+	// The empty group list must marshal as an empty array rather than
+	// null.
+	raw, err := json.Marshal(result)
+	require.NoError(t, err)
+	require.Contains(t, string(raw), `"groups":[]`)
+}
+
+// TestNetworkGroupDistributionNoSyncPeer verifies that no group is marked as
+// the sync peer group when there is no sync peer or the sync peer is not part
+// of the snapshot.
+func TestNetworkGroupDistributionNoSyncPeer(t *testing.T) {
+	t.Parallel()
+
+	peers := []networkGroupPeerInfo{
+		{id: 1, inbound: false, group: "1.2.0.0"},
+		{id: 2, inbound: true, group: "local"},
+	}
+
+	for _, syncPeerID := range []int32{0, 99} {
+		result := networkGroupDistribution(peers, syncPeerID)
+		require.Equal(t, "", result.SyncPeerGroup)
+		for _, group := range result.Groups {
+			require.False(t, group.SyncPeer)
+		}
+	}
 }

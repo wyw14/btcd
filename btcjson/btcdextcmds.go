@@ -141,6 +141,18 @@ type VersionCmd struct{}
 // github.com/decred/dcrd/dcrjson.
 func NewVersionCmd() *VersionCmd { return new(VersionCmd) }
 
+// GetNetworkGroupDistributionCmd defines the getnetworkgroupdistribution
+// JSON-RPC command.  This command is not a standard Bitcoin command.  It is
+// an extension for btcd.
+type GetNetworkGroupDistributionCmd struct{}
+
+// NewGetNetworkGroupDistributionCmd returns a new instance which can be used
+// to issue a getnetworkgroupdistribution JSON-RPC command.  This command is
+// not a standard Bitcoin command.  It is an extension for btcd.
+func NewGetNetworkGroupDistributionCmd() *GetNetworkGroupDistributionCmd {
+	return &GetNetworkGroupDistributionCmd{}
+}
+
 func init() {
 	// No special flags for commands in this file.
 	flags := UsageFlag(0)
@@ -153,4 +165,6 @@ func init() {
 	MustRegisterCmd("getcurrentnet", (*GetCurrentNetCmd)(nil), flags)
 	MustRegisterCmd("getheaders", (*GetHeadersCmd)(nil), flags)
 	MustRegisterCmd("version", (*VersionCmd)(nil), flags)
+	MustRegisterCmd("getnetworkgroupdistribution",
+		(*GetNetworkGroupDistributionCmd)(nil), flags)
 }

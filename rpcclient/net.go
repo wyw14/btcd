@@ -318,6 +318,47 @@ func (c *Client) GetNodeAddresses(count *int32) ([]btcjson.GetNodeAddressesResul
 	return c.GetNodeAddressesAsync(count).Receive()
 }
 
+// FutureGetNetworkGroupDistributionResult is a future promise to deliver the
+// result of a GetNetworkGroupDistributionAsync RPC invocation (or an
+// applicable error).
+type FutureGetNetworkGroupDistributionResult chan *Response
+
+// Receive waits for the Response promised by the future and returns the
+// distribution of currently connected peers across the network groups used by
+// the address manager.
+func (r FutureGetNetworkGroupDistributionResult) Receive() (*btcjson.GetNetworkGroupDistributionResult, error) {
+	res, err := ReceiveFuture(r)
+	if err != nil {
+		return nil, err
+	}
+
+	// Unmarshal result as a getnetworkgroupdistribution result object.
+	var distribution btcjson.GetNetworkGroupDistributionResult
+	err = json.Unmarshal(res, &distribution)
+	if err != nil {
+		return nil, err
+	}
+
+	return &distribution, nil
+}
+
+// GetNetworkGroupDistributionAsync returns an instance of a type that can be
+// used to get the result of the RPC at some future time by invoking the
+// Receive function on the returned instance.
+//
+// See GetNetworkGroupDistribution for the blocking version and more details.
+func (c *Client) GetNetworkGroupDistributionAsync() FutureGetNetworkGroupDistributionResult {
+	cmd := btcjson.NewGetNetworkGroupDistributionCmd()
+	return c.SendCmd(cmd)
+}
+
+// GetNetworkGroupDistribution returns the distribution of currently connected
+// peers across the network groups used by the address manager.  The query is
+// report-only and does not disconnect peers or change peer selection.
+func (c *Client) GetNetworkGroupDistribution() (*btcjson.GetNetworkGroupDistributionResult, error) {
+	return c.GetNetworkGroupDistributionAsync().Receive()
+}
+
 // FutureGetPeerInfoResult is a future promise to deliver the result of a
 // GetPeerInfoAsync RPC invocation (or an applicable error).
 type FutureGetPeerInfoResult chan *Response
